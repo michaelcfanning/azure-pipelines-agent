@@ -5,25 +5,52 @@ using Agent.Sdk.SecretMasking;
 using ValueEncoder = Microsoft.TeamFoundation.DistributedTask.Logging.ValueEncoder;
 using ValueEncoders = Microsoft.TeamFoundation.DistributedTask.Logging.ValueEncoders;
 using Xunit;
+using SecretMaskerVSO = Microsoft.TeamFoundation.DistributedTask.Logging.SecretMasker;
+using ISecretMaskerVSO = Microsoft.TeamFoundation.DistributedTask.Logging.ISecretMasker;
+using Microsoft.Security.Utilities;
 
 namespace Microsoft.VisualStudio.Services.Agent.Tests
 {
-    public sealed class SecretMaskerL0
+    public sealed class BuiltInSecretMaskerL0 : SecretMaskerL0
     {
-        private ISecretMasker initSecretMasker()
+        protected override ISecretMaskerVSO InitializeSecretMasker()
         {
-            var testSecretMasker = new SecretMasker();
+            var testSecretMasker = new BuiltInSecretMasker();
             testSecretMasker.AddRegex(AdditionalMaskingRegexes.UrlSecretPattern);
-
             return testSecretMasker;
         }
+    }
+
+    public sealed class SecretMaskerVSOL0 : SecretMaskerL0
+    {
+        protected override ISecretMaskerVSO InitializeSecretMasker()
+        {
+            var testSecretMasker = new SecretMaskerVSO();
+            testSecretMasker.AddRegex(AdditionalMaskingRegexes.UrlSecretPattern);
+            return testSecretMasker;
+        }
+    }
+
+    public sealed class OssSecretMaskerL0 : SecretMaskerL0
+    {
+        protected override ISecretMaskerVSO InitializeSecretMasker()
+        {
+            var testSecretMasker = new OssSecretMasker();
+            testSecretMasker.AddRegex(new UrlCredentials().Pattern);
+            return testSecretMasker;
+        }
+    }
+
+    public abstract class SecretMaskerL0
+    {
+        protected abstract ISecretMaskerVSO InitializeSecretMasker();
 
         [Fact]
         [Trait("Level", "L0")]
         [Trait("Category", "SecretMasker")]
         public void IsSimpleUrlNotMasked()
         {
-            var testSecretMasker = initSecretMasker();
+            var testSecretMasker = InitializeSecretMasker();
 
             Assert.Equal(
                "https://simpledomain@example.com",
@@ -35,7 +62,7 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests
         [Trait("Category", "SecretMasker")]
         public void IsComplexUrlNotMasked()
         {
-            var testSecretMasker = initSecretMasker();
+            var testSecretMasker = InitializeSecretMasker();
 
             Assert.Equal(
                 "https://url.com:443/~user/foo=bar+42-18?what=this.is.an.example....~~many@&param=value",
@@ -47,10 +74,14 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests
         [Trait("Category", "SecretMasker")]
         public void IsUserInfoMaskedCorrectly()
         {
-            var testSecretMasker = initSecretMasker();
+            var testSecretMasker = InitializeSecretMasker();
+
+            string expected = testSecretMasker is OssSecretMasker
+                ? "https://***@example.com"
+                : "***example.com";
 
             Assert.Equal(
-               "https://user:***@example.com",
+               expected,
                testSecretMasker.MaskSecrets("https://user:pass@example.com"));
         }
 
@@ -59,10 +90,14 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests
         [Trait("Category", "SecretMasker")]
         public void IsUserInfoWithSpecialCharactersMaskedCorrectly()
         {
-            var testSecretMasker = initSecretMasker();
+            var testSecretMasker = InitializeSecretMasker();
+
+            string expected = testSecretMasker is OssSecretMasker
+                ? "https://***@example.com"
+                : "***example.com";
 
             Assert.Equal(
-               "https://user:***@example.com",
+               expected,
                testSecretMasker.MaskSecrets(@"https://user:pass4';.!&*()=,$-+~@example.com"));
         }
 
@@ -71,10 +106,14 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests
         [Trait("Category", "SecretMasker")]
         public void IsUserInfoWithDigitsInNameMaskedCorrectly()
         {
-            var testSecretMasker = initSecretMasker();
+            var testSecretMasker = InitializeSecretMasker();
+
+            string expected = testSecretMasker is OssSecretMasker
+                ? "https://***@example.com"
+                : "***example.com";
 
             Assert.Equal(
-               "https://username123:***@example.com",
+               expected,
                testSecretMasker.MaskSecrets(@"https://username123:password@example.com"));
         }
 
@@ -83,10 +122,14 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests
         [Trait("Category", "SecretMasker")]
         public void IsUserInfoWithLongPasswordAndNameMaskedCorrectly()
         {
-            var testSecretMasker = initSecretMasker();
+            var testSecretMasker = InitializeSecretMasker();
+
+            string expected = testSecretMasker is OssSecretMasker
+                ? "https://***@example.com"
+                : "***example.com";
 
             Assert.Equal(
-               "https://username_loooooooooooooooooooooooooooooooooooooooooong:***@example.com",
+               expected,
                testSecretMasker.MaskSecrets(@"https://username_loooooooooooooooooooooooooooooooooooooooooong:password_looooooooooooooooooooooooooooooooooooooooooooooooong@example.com"));
         }
 
@@ -95,10 +138,14 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests
         [Trait("Category", "SecretMasker")]
         public void IsUserInfoWithEncodedCharactersdInNameMaskedCorrectly()
         {
-            var testSecretMasker = initSecretMasker();
+            var testSecretMasker = InitializeSecretMasker();
+
+            string expected = testSecretMasker is OssSecretMasker
+                ? "https://***@example.com"
+                : "***example.com";
 
             Assert.Equal(
-               "https://username%10%A3%F6:***@example.com",
+               expected,
                testSecretMasker.MaskSecrets(@"https://username%10%A3%F6:password123@example.com"));
         }
 
@@ -107,20 +154,24 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests
         [Trait("Category", "SecretMasker")]
         public void IsUserInfoWithEncodedAndEscapedCharactersdInNameMaskedCorrectly()
         {
-            var testSecretMasker = initSecretMasker();
+            var testSecretMasker = InitializeSecretMasker();
+
+            string expected = testSecretMasker is OssSecretMasker
+                ? "https://***@example.com"
+                : "***example.com";
 
             Assert.Equal(
-               "https://username%AZP2510%AZP25A3%AZP25F6:***@example.com",
+               expected,
                testSecretMasker.MaskSecrets(@"https://username%AZP2510%AZP25A3%AZP25F6:password123@example.com"));
         }
-        
+
         [Fact]
-        [Trait("Level","L0")]
+        [Trait("Level", "L0")]
         [Trait("Category", "SecretMasker")]
         public void SecretMaskerTests_CopyConstructor()
         {
             // Setup masker 1
-            using var secretMasker1 = new SecretMasker();
+            var secretMasker1 = InitializeSecretMasker();
             secretMasker1.AddRegex("masker-1-regex-1_*");
             secretMasker1.AddRegex("masker-1-regex-2_*");
             secretMasker1.AddValue("masker-1-value-1_");
@@ -174,12 +225,12 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests
             Assert.Equal("***masker-1-encoder-3", secretMasker2.MaskSecrets("masker-1-value-1_masker-1-encoder-3")); // separate encoder storage from original
         }
         [Fact]
-        [Trait("Level","L0")]
+        [Trait("Level", "L0")]
         [Trait("Category", "SecretMasker")]
         public void SecretMaskerTests_Encoder()
         {
             // Add encoder before values.
-            using var secretMasker = new SecretMasker();
+            var secretMasker = InitializeSecretMasker();
             secretMasker.AddValueEncoder(x => x.Replace("-", "_"));
             secretMasker.AddValueEncoder(x => x.Replace("-", " "));
             secretMasker.AddValue("value-1");
@@ -198,429 +249,443 @@ namespace Microsoft.VisualStudio.Services.Agent.Tests
             Assert.Equal("***", secretMasker.MaskSecrets("value_3"));
             Assert.Equal("***", secretMasker.MaskSecrets("value 3"));
         }
-        
+
         [Fact]
-        [Trait("Level","L0")]
+        [Trait("Level", "L0")]
         [Trait("Category", "SecretMasker")]
         public void SecretMaskerTests_Encoder_JsonStringEscape()
-         {
-             using var secretMasker = new SecretMasker();
-             secretMasker.AddValueEncoder(ValueEncoders.JsonStringEscape);
-             secretMasker.AddValue("carriage-return\r_newline\n_tab\t_backslash\\_double-quote\"");
-             Assert.Equal("***", secretMasker.MaskSecrets("carriage-return\r_newline\n_tab\t_backslash\\_double-quote\""));
-             Assert.Equal("***", secretMasker.MaskSecrets("carriage-return\\r_newline\\n_tab\\t_backslash\\\\_double-quote\\\""));
-         }
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.AddValueEncoder(ValueEncoders.JsonStringEscape);
+            secretMasker.AddValue("carriage-return\r_newline\n_tab\t_backslash\\_double-quote\"");
+            Assert.Equal("***", secretMasker.MaskSecrets("carriage-return\r_newline\n_tab\t_backslash\\_double-quote\""));
+            Assert.Equal("***", secretMasker.MaskSecrets("carriage-return\\r_newline\\n_tab\\t_backslash\\\\_double-quote\\\""));
+        }
 
         [Fact]
-        [Trait("Level","L0")]
+        [Trait("Level", "L0")]
         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_Encoder_BackslashEscape()
-         {
-             using var secretMasker = new SecretMasker();
-             secretMasker.AddValueEncoder(ValueEncoders.BackslashEscape);
-             secretMasker.AddValue(@"abc\\def\'\""ghi\t");
-             Assert.Equal("***", secretMasker.MaskSecrets(@"abc\\def\'\""ghi\t"));
-             Assert.Equal("***", secretMasker.MaskSecrets(@"abc\def'""ghi" + "\t"));
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_Encoder_UriDataEscape()
-         {
-             using var secretMasker = new SecretMasker();
-             secretMasker.AddValueEncoder(ValueEncoders.UriDataEscape);
-             secretMasker.AddValue("hello world");
-             Assert.Equal("***", secretMasker.MaskSecrets("hello world"));
-             Assert.Equal("***", secretMasker.MaskSecrets("hello%20world"));
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_Encoder_UriDataEscape_LargeString()
-         {
-             // Uri.EscapeDataString cannot receive a string longer than 65519 characters.
-             // For unit testing we call a different overload with a smaller segment size (improve unit test speed).
-
-             ValueEncoder encoder = x => ValueEncoders.UriDataEscape(x);
-
-             using (var secretMasker = new SecretMasker())
-             {
-                 secretMasker.AddValueEncoder(encoder);
-                 var value = String.Empty.PadRight(1, ' ');
-                 secretMasker.AddValue(value);
-                 Assert.Equal("***", secretMasker.MaskSecrets(value));
-                 Assert.Equal("***", secretMasker.MaskSecrets(value.Replace(" ", "%20")));
-             }
-
-             using (var secretMasker = new SecretMasker())
-             {
-                 secretMasker.AddValueEncoder(encoder);
-                 var value = String.Empty.PadRight(2, ' ');
-                 secretMasker.AddValue(value);
-                 Assert.Equal("***", secretMasker.MaskSecrets(value));
-                 Assert.Equal("***", secretMasker.MaskSecrets(value.Replace(" ", "%20")));
-             }
-             
-             using (var secretMasker = new SecretMasker())
-             {
-                 secretMasker.AddValueEncoder(encoder);
-                 var value = String.Empty.PadRight(3, ' ');
-                 secretMasker.AddValue(value);
-                 Assert.Equal("***", secretMasker.MaskSecrets(value));
-                 Assert.Equal("***", secretMasker.MaskSecrets(value.Replace(" ", "%20")));
-             }
-             
-             using (var secretMasker = new SecretMasker())
-             {
-                 secretMasker.AddValueEncoder(encoder);
-                 var value = String.Empty.PadRight(4, ' ');
-                 secretMasker.AddValue(value);
-                 Assert.Equal("***", secretMasker.MaskSecrets(value));
-                 Assert.Equal("***", secretMasker.MaskSecrets(value.Replace(" ", "%20")));
-             }
-             
-             using (var secretMasker = new SecretMasker())
-             {
-                 secretMasker.AddValueEncoder(encoder);
-                 var value = String.Empty.PadRight(5, ' ');
-                 secretMasker.AddValue(value);
-                 Assert.Equal("***", secretMasker.MaskSecrets(value));
-                 Assert.Equal("***", secretMasker.MaskSecrets(value.Replace(" ", "%20")));
-             }
-             
-             using (var secretMasker = new SecretMasker())
-             {
-                 secretMasker.AddValueEncoder(encoder);
-                 var value = String.Empty.PadRight(5, ' ');
-                 secretMasker.AddValue(value);
-                 Assert.Equal("***", secretMasker.MaskSecrets(value));
-                 Assert.Equal("***", secretMasker.MaskSecrets(value.Replace(" ", "%20")));
-             }
-             
-             using (var secretMasker = new SecretMasker())
-             {
-                 secretMasker.AddValueEncoder(encoder);
-                 var value = String.Empty.PadRight(6, ' ');
-                 secretMasker.AddValue(value);
-                 Assert.Equal("***", secretMasker.MaskSecrets(value));
-                 Assert.Equal("***", secretMasker.MaskSecrets(value.Replace(" ", "%20")));
-             }
-             
-             
-             using (var secretMasker = new SecretMasker())
-             {
-                 secretMasker.AddValueEncoder(encoder);
-                 var value = String.Empty.PadRight(7, ' ');
-                 secretMasker.AddValue(value);
-                 Assert.Equal("***", secretMasker.MaskSecrets(value));
-                 Assert.Equal("***", secretMasker.MaskSecrets(value.Replace(" ", "%20")));
-             }
-             
-             using (var secretMasker = new SecretMasker())
-             {
-                 secretMasker.AddValueEncoder(encoder);
-                 var value = "𐐷𐐷𐐷𐐷"; // surrogate pair
-                 secretMasker.AddValue(value);
-                 Assert.Equal("***", secretMasker.MaskSecrets(value));
-             }
-             
-             using (var secretMasker = new SecretMasker())
-             {
-                 secretMasker.AddValueEncoder(encoder);
-                 var value = " 𐐷𐐷𐐷𐐷"; // shift by one non-surrogate character to ensure surrogate across segment boundary handled correctly
-                 secretMasker.AddValue(value);
-                 Assert.Equal("***", secretMasker.MaskSecrets(value));
-             }
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_HandlesEmptyInput()
-         {
-             using var secretMasker = new SecretMasker();
-             secretMasker.AddValue("abcd");
-
-             var result = secretMasker.MaskSecrets(null);
-             Assert.Equal(string.Empty, result);
-
-             result = secretMasker.MaskSecrets(string.Empty);
-             Assert.Equal(string.Empty, result);
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_HandlesNoMasks()
-         {
-             using var secretMasker = new SecretMasker();
-             var expected = "abcdefg";
-             var actual = secretMasker.MaskSecrets(expected);
-             Assert.Equal(expected, actual);
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_ReplacesValue()
-         {
-             using var secretMasker = new SecretMasker();
-             secretMasker.AddValue("def");
-
-             var input = "abcdefg";
-             var result = secretMasker.MaskSecrets(input);
-
-             Assert.Equal("abc***g", result);
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_ReplacesMultipleInstances()
-         {
-             using var secretMasker = new SecretMasker();
-             secretMasker.AddValue("def");
-
-             var input = "abcdefgdef";
-             var result = secretMasker.MaskSecrets(input);
-
-             Assert.Equal("abc***g***", result);
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_ReplacesMultipleAdjacentInstances()
-         {
-             using var secretMasker = new SecretMasker();
-             secretMasker.AddValue("abc");
-
-             var input = "abcabcdef";
-             var result = secretMasker.MaskSecrets(input);
-
-             Assert.Equal("***def", result);
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_ReplacesMultipleSecrets()
-         {
-             using var secretMasker = new SecretMasker();
-             secretMasker.AddValue("bcd");
-             secretMasker.AddValue("fgh");
-
-             var input = "abcdefghi";
-             var result = secretMasker.MaskSecrets(input);
-
-             Assert.Equal("a***e***i", result);
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_ReplacesOverlappingSecrets()
-         {
-             using var secretMasker = new SecretMasker();
-             secretMasker.AddValue("def");
-             secretMasker.AddValue("bcd");
-
-             var input = "abcdefg";
-             var result = secretMasker.MaskSecrets(input);
-
-             // a naive replacement would replace "def" first, and never find "bcd", resulting in "abc***g"
-             // or it would replace "bcd" first, and never find "def", resulting in "a***efg"
-
-             Assert.Equal("a***g", result);
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_ReplacesAdjacentSecrets()
-         {
-             using var secretMasker = new SecretMasker();
-             secretMasker.AddValue("efg");
-             secretMasker.AddValue("bcd");
-
-             var input = "abcdefgh";
-             var result = secretMasker.MaskSecrets(input);
-
-             // two adjacent secrets are basically one big secret
-
-             Assert.Equal("a***h", result);
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_MinLengthSetThroughConstructor()
-         {
-             using var secretMasker = new SecretMasker() { MinSecretLength = 9 };
-
-             secretMasker.AddValue("efg");
-             secretMasker.AddValue("bcd");
-
-             var input = "abcdefgh";
-             var result = secretMasker.MaskSecrets(input);
-
-             // two adjacent secrets are basically one big secret
-
-             Assert.Equal("abcdefgh", result);
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_MinLengthSetThroughProperty()
-         {
-             using var secretMasker = new SecretMasker { MinSecretLength = 9 };
-
-             secretMasker.AddValue("efg");
-             secretMasker.AddValue("bcd");
-
-             var input = "abcdefgh";
-             var result = secretMasker.MaskSecrets(input);
-
-             // two adjacent secrets are basically one big secret
-
-             Assert.Equal("abcdefgh", result);
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_MinLengthSetThroughPropertySetTwice()
-         {
-             using var secretMasker = new SecretMasker();
-
-             var minSecretLenFirst = 9;
-             secretMasker.MinSecretLength = minSecretLenFirst;
-
-             var minSecretLenSecond = 2;
-             secretMasker.MinSecretLength = minSecretLenSecond;
-
-             Assert.Equal(secretMasker.MinSecretLength, minSecretLenSecond);
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_NegativeMinSecretLengthSet()
-         {
-             using var secretMasker = new SecretMasker() { MinSecretLength = -3 };
-             secretMasker.AddValue("efg");
-             secretMasker.AddValue("bcd");
-
-             var input = "abcdefgh";
-             var result = secretMasker.MaskSecrets(input);
-
-             Assert.Equal("a***h", result);
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_RemoveShortSecrets()
-         {
-             using var secretMasker = new SecretMasker() { MinSecretLength = 3 };
-             secretMasker.AddValue("efg");
-             secretMasker.AddValue("bcd");
-
-             var input = "abcdefgh";
-             var result = secretMasker.MaskSecrets(input);
-
-             Assert.Equal("a***h", result);
-
-             secretMasker.MinSecretLength = 4;
-             secretMasker.RemoveShortSecretsFromDictionary();
-
-             var result2 = secretMasker.MaskSecrets(input);
-
-             Assert.Equal(input, result2);
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_RemoveShortSecretsBoundaryValues()
-         {
-             using var secretMasker = new SecretMasker(0);
-             secretMasker.AddValue("bc");
-             secretMasker.AddValue("defg");
-             secretMasker.AddValue("h12");
-
-             var input = "abcdefgh123";
-             var result = secretMasker.MaskSecrets(input);
-
-             Assert.Equal("a***3", result);
-
-             secretMasker.MinSecretLength = 3;
-             secretMasker.RemoveShortSecretsFromDictionary();
-
-             var result2 = secretMasker.MaskSecrets(input);
-
-             Assert.Equal("abc***3", result2);
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_RemoveShortRegexes()
-         {
-             using var secretMasker = new SecretMasker(0);
-             secretMasker.AddRegex("bc");
-             secretMasker.AddRegex("defg");
-             secretMasker.AddRegex("h12");
-
-             secretMasker.MinSecretLength = 3;
-             secretMasker.RemoveShortSecretsFromDictionary();
-
-             var input = "abcdefgh123";
-             var result = secretMasker.MaskSecrets(input);
-
-             Assert.Equal("abc***3", result);
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_RemoveEncodedSecrets()
-         {
-             using var secretMasker = new SecretMasker(0);
-             secretMasker.AddValue("1");
-             secretMasker.AddValue("2");
-             secretMasker.AddValue("3");
-             secretMasker.AddValueEncoder(new ValueEncoder(x => x.Replace("1", "123")));
-             secretMasker.AddValueEncoder(new ValueEncoder(x => x.Replace("2", "45")));
-             secretMasker.AddValueEncoder(new ValueEncoder(x => x.Replace("3", "6789")));
-
-             secretMasker.MinSecretLength = 3;
-             secretMasker.RemoveShortSecretsFromDictionary();
-
-             var input = "123456789";
-             var result = secretMasker.MaskSecrets(input);
-
-             Assert.Equal("***45***", result);
-         }
-
-         [Fact]
-         [Trait("Level","L0")]
-         [Trait("Category", "SecretMasker")]
-         public void SecretMaskerTests_NotAddShortEncodedSecrets()
-         {
-             using var secretMasker = new SecretMasker() { MinSecretLength = 3 };
-             secretMasker.AddValueEncoder(new ValueEncoder(x => x.Replace("123", "ab")));
-             secretMasker.AddValue("123");
-             secretMasker.AddValue("345");
-             secretMasker.AddValueEncoder(new ValueEncoder(x => x.Replace("345", "cd")));
-
-             var input = "ab123cd345";
-             var result = secretMasker.MaskSecrets(input);
-
-             Assert.Equal("ab***cd***", result);
-         }
+        public void SecretMaskerTests_Encoder_BackslashEscape()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.AddValueEncoder(ValueEncoders.BackslashEscape);
+            secretMasker.AddValue(@"abc\\def\'\""ghi\t");
+            Assert.Equal("***", secretMasker.MaskSecrets(@"abc\\def\'\""ghi\t"));
+            Assert.Equal("***", secretMasker.MaskSecrets(@"abc\def'""ghi" + "\t"));
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_Encoder_UriDataEscape()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.AddValueEncoder(ValueEncoders.UriDataEscape);
+            secretMasker.AddValue("hello world");
+            Assert.Equal("***", secretMasker.MaskSecrets("hello world"));
+            Assert.Equal("***", secretMasker.MaskSecrets("hello%20world"));
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_Encoder_UriDataEscape_LargeString()
+        {
+            // Uri.EscapeDataString cannot receive a string longer than 65519 characters.
+            // For unit testing we call a different overload with a smaller segment size (improve unit test speed).
+
+            ValueEncoder encoder = x => ValueEncoders.UriDataEscape(x);
+
+            using (var secretMasker = new BuiltInSecretMasker())
+            {
+                secretMasker.AddValueEncoder(encoder);
+                var value = String.Empty.PadRight(1, ' ');
+                secretMasker.AddValue(value);
+                Assert.Equal("***", secretMasker.MaskSecrets(value));
+                Assert.Equal("***", secretMasker.MaskSecrets(value.Replace(" ", "%20")));
+            }
+
+            using (var secretMasker = new BuiltInSecretMasker())
+            {
+                secretMasker.AddValueEncoder(encoder);
+                var value = String.Empty.PadRight(2, ' ');
+                secretMasker.AddValue(value);
+                Assert.Equal("***", secretMasker.MaskSecrets(value));
+                Assert.Equal("***", secretMasker.MaskSecrets(value.Replace(" ", "%20")));
+            }
+
+            using (var secretMasker = new BuiltInSecretMasker())
+            {
+                secretMasker.AddValueEncoder(encoder);
+                var value = String.Empty.PadRight(3, ' ');
+                secretMasker.AddValue(value);
+                Assert.Equal("***", secretMasker.MaskSecrets(value));
+                Assert.Equal("***", secretMasker.MaskSecrets(value.Replace(" ", "%20")));
+            }
+
+            using (var secretMasker = new BuiltInSecretMasker())
+            {
+                secretMasker.AddValueEncoder(encoder);
+                var value = String.Empty.PadRight(4, ' ');
+                secretMasker.AddValue(value);
+                Assert.Equal("***", secretMasker.MaskSecrets(value));
+                Assert.Equal("***", secretMasker.MaskSecrets(value.Replace(" ", "%20")));
+            }
+
+            using (var secretMasker = new BuiltInSecretMasker())
+            {
+                secretMasker.AddValueEncoder(encoder);
+                var value = String.Empty.PadRight(5, ' ');
+                secretMasker.AddValue(value);
+                Assert.Equal("***", secretMasker.MaskSecrets(value));
+                Assert.Equal("***", secretMasker.MaskSecrets(value.Replace(" ", "%20")));
+            }
+
+            using (var secretMasker = new BuiltInSecretMasker())
+            {
+                secretMasker.AddValueEncoder(encoder);
+                var value = String.Empty.PadRight(5, ' ');
+                secretMasker.AddValue(value);
+                Assert.Equal("***", secretMasker.MaskSecrets(value));
+                Assert.Equal("***", secretMasker.MaskSecrets(value.Replace(" ", "%20")));
+            }
+
+            using (var secretMasker = new BuiltInSecretMasker())
+            {
+                secretMasker.AddValueEncoder(encoder);
+                var value = String.Empty.PadRight(6, ' ');
+                secretMasker.AddValue(value);
+                Assert.Equal("***", secretMasker.MaskSecrets(value));
+                Assert.Equal("***", secretMasker.MaskSecrets(value.Replace(" ", "%20")));
+            }
+
+
+            using (var secretMasker = new BuiltInSecretMasker())
+            {
+                secretMasker.AddValueEncoder(encoder);
+                var value = String.Empty.PadRight(7, ' ');
+                secretMasker.AddValue(value);
+                Assert.Equal("***", secretMasker.MaskSecrets(value));
+                Assert.Equal("***", secretMasker.MaskSecrets(value.Replace(" ", "%20")));
+            }
+
+            using (var secretMasker = new BuiltInSecretMasker())
+            {
+                secretMasker.AddValueEncoder(encoder);
+                var value = "𐐷𐐷𐐷𐐷"; // surrogate pair
+                secretMasker.AddValue(value);
+                Assert.Equal("***", secretMasker.MaskSecrets(value));
+            }
+
+            using (var secretMasker = new BuiltInSecretMasker())
+            {
+                secretMasker.AddValueEncoder(encoder);
+                var value = " 𐐷𐐷𐐷𐐷"; // shift by one non-surrogate character to ensure surrogate across segment boundary handled correctly
+                secretMasker.AddValue(value);
+                Assert.Equal("***", secretMasker.MaskSecrets(value));
+            }
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_HandlesEmptyInput()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.AddValue("abcd");
+
+            var result = secretMasker.MaskSecrets(null);
+            Assert.Equal(string.Empty, result);
+
+            result = secretMasker.MaskSecrets(string.Empty);
+            Assert.Equal(string.Empty, result);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_HandlesNoMasks()
+        {
+            var secretMasker = InitializeSecretMasker();
+            var expected = "abcdefg";
+            var actual = secretMasker.MaskSecrets(expected);
+            Assert.Equal(expected, actual);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_ReplacesValue()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.AddValue("def");
+
+            var input = "abcdefg";
+            var result = secretMasker.MaskSecrets(input);
+
+            Assert.Equal("abc***g", result);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_ReplacesMultipleInstances()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.AddValue("def");
+
+            var input = "abcdefgdef";
+            var result = secretMasker.MaskSecrets(input);
+
+            Assert.Equal("abc***g***", result);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_ReplacesMultipleAdjacentInstances()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.AddValue("abc");
+
+            var input = "abcabcdef";
+            var result = secretMasker.MaskSecrets(input);
+
+            Assert.Equal("***def", result);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_ReplacesMultipleSecrets()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.AddValue("bcd");
+            secretMasker.AddValue("fgh");
+
+            var input = "abcdefghi";
+            var result = secretMasker.MaskSecrets(input);
+
+            Assert.Equal("a***e***i", result);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_ReplacesOverlappingSecrets()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.AddValue("def");
+            secretMasker.AddValue("bcd");
+
+            var input = "abcdefg";
+            var result = secretMasker.MaskSecrets(input);
+
+            // a naive replacement would replace "def" first, and never find "bcd", resulting in "abc***g"
+            // or it would replace "bcd" first, and never find "def", resulting in "a***efg"
+
+            Assert.Equal("a***g", result);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_ReplacesAdjacentSecrets()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.AddValue("efg");
+            secretMasker.AddValue("bcd");
+
+            var input = "abcdefgh";
+            var result = secretMasker.MaskSecrets(input);
+
+            // two adjacent secrets are basically one big secret
+
+            Assert.Equal("a***h", result);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_MinLengthSetThroughConstructor()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.MinSecretLength = 9;
+
+            secretMasker.AddValue("efg");
+            secretMasker.AddValue("bcd");
+
+            var input = "abcdefgh";
+            var result = secretMasker.MaskSecrets(input);
+
+            // two adjacent secrets are basically one big secret
+
+            Assert.Equal("abcdefgh", result);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_MinLengthSetThroughProperty()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.MinSecretLength = 9;
+
+            secretMasker.AddValue("efg");
+            secretMasker.AddValue("bcd");
+
+            var input = "abcdefgh";
+            var result = secretMasker.MaskSecrets(input);
+
+            // two adjacent secrets are basically one big secret
+
+            Assert.Equal("abcdefgh", result);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_MinLengthSetThroughPropertySetTwice()
+        {
+            var secretMasker = InitializeSecretMasker();
+
+            var minSecretLenFirst = 9;
+            secretMasker.MinSecretLength = minSecretLenFirst;
+
+            var minSecretLenSecond = 2;
+            secretMasker.MinSecretLength = minSecretLenSecond;
+
+            Assert.Equal(secretMasker.MinSecretLength, minSecretLenSecond);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_NegativeMinSecretLengthSet()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.MinSecretLength = -3;
+
+            secretMasker.AddValue("efg");
+            secretMasker.AddValue("bcd");
+
+            var input = "abcdefgh";
+            var result = secretMasker.MaskSecrets(input);
+
+            Assert.Equal("a***h", result);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_RemoveShortSecrets()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.MinSecretLength = 3;
+
+            secretMasker.AddValue("efg");
+            secretMasker.AddValue("bcd");
+
+            var input = "abcdefgh";
+            var result = secretMasker.MaskSecrets(input);
+
+            Assert.Equal("a***h", result);
+
+            secretMasker.MinSecretLength = 4;
+            secretMasker.RemoveShortSecretsFromDictionary();
+
+            var result2 = secretMasker.MaskSecrets(input);
+
+            Assert.Equal(input, result2);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_RemoveShortSecretsBoundaryValues()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.MinSecretLength = 0;
+
+            secretMasker.AddValue("bc");
+            secretMasker.AddValue("defg");
+            secretMasker.AddValue("h12");
+
+            var input = "abcdefgh123";
+            var result = secretMasker.MaskSecrets(input);
+
+            Assert.Equal("a***3", result);
+
+            secretMasker.MinSecretLength = 3;
+            secretMasker.RemoveShortSecretsFromDictionary();
+
+            var result2 = secretMasker.MaskSecrets(input);
+
+            Assert.Equal("abc***3", result2);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_RemoveShortRegexes()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.MinSecretLength = 0;
+
+            secretMasker.AddRegex("bc");
+            secretMasker.AddRegex("defg");
+            secretMasker.AddRegex("h12");
+
+            secretMasker.MinSecretLength = 3;
+            secretMasker.RemoveShortSecretsFromDictionary();
+
+            var input = "abcdefgh123";
+            var result = secretMasker.MaskSecrets(input);
+
+            Assert.Equal("abc***3", result);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_RemoveEncodedSecrets()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.MinSecretLength = 0;
+
+            secretMasker.AddValue("1");
+            secretMasker.AddValue("2");
+            secretMasker.AddValue("3");
+            secretMasker.AddValueEncoder(new ValueEncoder(x => x.Replace("1", "123")));
+            secretMasker.AddValueEncoder(new ValueEncoder(x => x.Replace("2", "45")));
+            secretMasker.AddValueEncoder(new ValueEncoder(x => x.Replace("3", "6789")));
+
+            secretMasker.MinSecretLength = 3;
+            secretMasker.RemoveShortSecretsFromDictionary();
+
+            var input = "123456789";
+            var result = secretMasker.MaskSecrets(input);
+
+            Assert.Equal("***45***", result);
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "SecretMasker")]
+        public void SecretMaskerTests_NotAddShortEncodedSecrets()
+        {
+            var secretMasker = InitializeSecretMasker();
+            secretMasker.MinSecretLength = 3;
+
+            secretMasker.AddValueEncoder(new ValueEncoder(x => x.Replace("123", "ab")));
+            secretMasker.AddValue("123");
+            secretMasker.AddValue("345");
+            secretMasker.AddValueEncoder(new ValueEncoder(x => x.Replace("345", "cd")));
+
+            var input = "ab123cd345";
+            var result = secretMasker.MaskSecrets(input);
+
+            Assert.Equal("ab***cd***", result);
+        }
     }
 }
